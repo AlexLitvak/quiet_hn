@@ -8,9 +8,10 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/gophercises/quiet_hn/hn"
+	"github.com/AlexLitvak/quiet_hn/hn"
 )
 
 func main() {
@@ -28,6 +29,29 @@ func main() {
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
 }
 
+type SafeStories struct {
+	stories  []item
+	capacity int
+	mux      sync.Mutex
+}
+
+func (s *SafeStories) add(it item) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	if len(s.stories) < s.capacity {
+		s.stories = append(s.stories, it)
+	}
+}
+
+func asyncAddStory(id int, client hn.Client, stories *SafeStories, wg *sync.WaitGroup) {
+	defer wg.Done()
+	hnItem, _ := client.GetItem(id)
+	item := parseHNItem(hnItem)
+	if isStoryLink(item) {
+		stories.add(item)
+	}
+}
+
 func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -37,22 +61,15 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 			http.Error(w, "Failed to load top stories", http.StatusInternalServerError)
 			return
 		}
-		var stories []item
+		safeStories := SafeStories{capacity: numStories, stories: make([]item, 0)}
+		var wg sync.WaitGroup
 		for _, id := range ids {
-			hnItem, err := client.GetItem(id)
-			if err != nil {
-				continue
-			}
-			item := parseHNItem(hnItem)
-			if isStoryLink(item) {
-				stories = append(stories, item)
-				if len(stories) >= numStories {
-					break
-				}
-			}
+			wg.Add(1)
+			go asyncAddStory(id, client, &safeStories, &wg)
 		}
+		wg.Wait()
 		data := templateData{
-			Stories: stories,
+			Stories: safeStories.stories,
 			Time:    time.Now().Sub(start),
 		}
 		err = tpl.Execute(w, data)
