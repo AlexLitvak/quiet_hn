@@ -71,23 +71,23 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 		for i := 0; i < numStories; i++ {
 			wg.Add(1)
 			go asyncAddStory(ids[i], i, client, &safeStories, &wg)
-			fmt.Printf("%v, %v \n", i, ids[i])
+			//fmt.Printf("%v, %v \n", i, ids[i])
 		}
 		wg.Wait()
 
-		fmt.Printf("results are: \n")
-		for _, v := range safeStories.results {
-			fmt.Printf("%v, %v \n", v.idx, v.ID)
-		}
+		// fmt.Printf("results are: \n")
+		// for _, v := range safeStories.results {
+		// 	fmt.Printf("%v, %v \n", v.idx, v.ID)
+		// }
 
 		sort.Slice(safeStories.results, func(i, j int) bool {
 			return safeStories.results[i].idx < safeStories.results[j].idx
 		})
 
-		fmt.Printf("filtered results are: \n")
-		for _, v := range safeStories.results {
-			fmt.Printf("%v, %v \n", v.idx, v.ID)
-		}
+		// fmt.Printf("filtered results are: \n")
+		// for _, v := range safeStories.results {
+		// 	fmt.Printf("%v, %v \n", v.idx, v.ID)
+		// }
 
 		var stories []item
 
