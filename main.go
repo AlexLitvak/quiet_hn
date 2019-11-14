@@ -67,17 +67,27 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 		}
 		safeStories := SafeStories{capacity: numStories, results: make([]result, 0)}
 		var wg sync.WaitGroup
-		for idx, id := range ids {
+		fmt.Println("sending for processing: ")
+		for i := 0; i < numStories; i++ {
 			wg.Add(1)
-			go asyncAddStory(id, idx, client, &safeStories, &wg)
+			go asyncAddStory(ids[i], i, client, &safeStories, &wg)
+			fmt.Printf("%v, %v \n", i, ids[i])
 		}
 		wg.Wait()
 
-		fmt.Printf("results are: %v", safeStories.results)
+		fmt.Printf("results are: \n")
+		for _, v := range safeStories.results {
+			fmt.Printf("%v, %v \n", v.idx, v.ID)
+		}
 
 		sort.Slice(safeStories.results, func(i, j int) bool {
 			return safeStories.results[i].idx < safeStories.results[j].idx
 		})
+
+		fmt.Printf("filtered results are: \n")
+		for _, v := range safeStories.results {
+			fmt.Printf("%v, %v \n", v.idx, v.ID)
+		}
 
 		var stories []item
 
