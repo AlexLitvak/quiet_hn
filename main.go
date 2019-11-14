@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -30,26 +31,29 @@ func main() {
 }
 
 type SafeStories struct {
-	stories  []item
+	results  []result
 	capacity int
 	mux      sync.Mutex
 }
 
-func (s *SafeStories) add(it item) {
+func (s *SafeStories) add(res result) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	if len(s.stories) < s.capacity {
-		s.stories = append(s.stories, it)
+	if len(s.results) < s.capacity && res.err == nil && isStoryLink(res.item) {
+		s.results = append(s.results, res)
 	}
 }
 
-func asyncAddStory(id int, client hn.Client, stories *SafeStories, wg *sync.WaitGroup) {
+func asyncAddStory(id int, idx int, client hn.Client, stories *SafeStories, wg *sync.WaitGroup) {
 	defer wg.Done()
-	hnItem, _ := client.GetItem(id)
-	item := parseHNItem(hnItem)
-	if isStoryLink(item) {
-		stories.add(item)
+	hnItem, err := client.GetItem(id)
+	var res result
+	if err != nil {
+		res = result{idx: idx, err: err}
+	} else {
+		res = result{idx: idx, item: buildHNItem(hnItem)}
 	}
+	stories.add(res)
 }
 
 func handler(numStories int, tpl *template.Template) http.HandlerFunc {
@@ -61,15 +65,28 @@ func handler(numStories int, tpl *template.Template) http.HandlerFunc {
 			http.Error(w, "Failed to load top stories", http.StatusInternalServerError)
 			return
 		}
-		safeStories := SafeStories{capacity: numStories, stories: make([]item, 0)}
+		safeStories := SafeStories{capacity: numStories, results: make([]result, 0)}
 		var wg sync.WaitGroup
-		for _, id := range ids {
+		for idx, id := range ids {
 			wg.Add(1)
-			go asyncAddStory(id, client, &safeStories, &wg)
+			go asyncAddStory(id, idx, client, &safeStories, &wg)
 		}
 		wg.Wait()
+
+		fmt.Printf("results are: %v", safeStories.results)
+
+		sort.Slice(safeStories.results, func(i, j int) bool {
+			return safeStories.results[i].idx < safeStories.results[j].idx
+		})
+
+		var stories []item
+
+		for _, v := range safeStories.results {
+			stories = append(stories, v.item)
+		}
+
 		data := templateData{
-			Stories: safeStories.stories,
+			Stories: stories,
 			Time:    time.Now().Sub(start),
 		}
 		err = tpl.Execute(w, data)
@@ -84,7 +101,7 @@ func isStoryLink(item item) bool {
 	return item.Type == "story" && item.URL != ""
 }
 
-func parseHNItem(hnItem hn.Item) item {
+func buildHNItem(hnItem hn.Item) item {
 	ret := item{Item: hnItem}
 	url, err := url.Parse(ret.URL)
 	if err == nil {
@@ -97,6 +114,12 @@ func parseHNItem(hnItem hn.Item) item {
 type item struct {
 	hn.Item
 	Host string
+}
+
+type result struct {
+	item
+	idx int
+	err error
 }
 
 type templateData struct {
